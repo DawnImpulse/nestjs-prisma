@@ -33,7 +33,49 @@ npm install @nestjs/config class-validator class-transformer
 npm install @nestjs/swagger swagger-ui-express
 ```
 
-### 3. Configure Database (Docker)
+### 3. Setup Docker (Dockerfile & Compose)
+
+Create a `Dockerfile` in the root directory for the application:
+
+```dockerfile
+FROM node:20-alpine As development
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+RUN npx prisma generate
+
+CMD ["npm", "run", "start:dev"]
+
+FROM node:20-alpine As build
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+
+COPY --from=development /usr/src/app/node_modules ./node_modules
+
+COPY . .
+
+RUN npx prisma generate
+RUN npm run build
+
+ENV NODE_ENV production
+
+RUN npm ci --only=production && npm cache clean --force
+
+FROM node:20-alpine As production
+
+COPY --from=build /usr/src/app/node_modules ./node_modules
+COPY --from=build /usr/src/app/dist ./dist
+
+CMD ["node", "dist/main.js"]
+```
 
 Create a `docker-compose.yml` file in the root directory:
 
@@ -47,8 +89,8 @@ services:
     command: --default-authentication-plugin=mysql_native_password
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: nestjs_typeorm
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
     ports:
       - '3306:3306'
     networks:
@@ -68,7 +110,7 @@ services:
     ports:
       - '3000:3000'
     environment:
-      - DATABASE_URL=mysql://root:root@mysql:3306/nestjs_typeorm
+      - DATABASE_URL=${DATABASE_URL}
     depends_on:
       - mysql
     networks:
@@ -230,21 +272,53 @@ bootstrap();
 
 ### 8. Run the Application
 
+#### Option 1: Local Development (Hybrid)
+Run the database in Docker and the application locally.
+
 1.  Start the database:
     ```bash
     docker-compose up -d mysql
     ```
-2.  Generate Prisma Client:
+2.  Ensure `.env` matches local settings:
+    ```env
+    DATABASE_URL="mysql://root:root@localhost:3306/nestjs_typeorm"
+    ```
+3.  Generate Prisma Client:
     ```bash
     npx prisma generate
     ```
-3.  Push schema to database:
+4.  Push schema to database:
     ```bash
     npx prisma db push
     ```
-4.  Start the server:
+5.  Start the server:
     ```bash
     npm run start:dev
+    ```
+
+#### Option 2: Fully Dockerized
+Run both the database and application in Docker.
+
+1.  Ensure `.env` matches Docker settings (or override variables):
+    ```env
+    DATABASE_URL="mysql://root:root@mysql:3306/nestjs_typeorm"
+    ```
+    *Note: The host is `mysql` (container name) instead of `localhost`.*
+
+2.  Start the services:
+    ```bash
+    docker-compose up -d --build
+    ```
+
+3.  Push the schema to the database (from your local machine):
+    ```bash
+    # Override DATABASE_URL to connect to the exposed localhost port
+    DATABASE_URL="mysql://root:root@localhost:3306/nestjs_typeorm" npx prisma db push
+    ```
+
+4.  View logs:
+    ```bash
+    docker-compose logs -f app
     ```
 
 Access Swagger UI at `http://localhost:3000/api`.
