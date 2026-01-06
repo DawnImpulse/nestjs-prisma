@@ -9,6 +9,7 @@ async function bootstrap() {
     .setTitle('NestJS TypeORM API')
     .setDescription('The API description')
     .setVersion('1.0')
+    .addApiKey({ type: 'apiKey', name: 'authorization', in: 'header' }, 'api_key')
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
